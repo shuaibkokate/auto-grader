@@ -1,72 +1,89 @@
+# AI Grading System Prototype for 500 Students - Renewable Energy
+
 import pandas as pd
-import textstat
+import numpy as np
+import random
+from sklearn.metrics.pairwise import cosine_similarity
+from sentence_transformers import SentenceTransformer
 
-# === Dynamic grading logic based on business rules ===
-def dynamic_grade(text):
-    text_lower = text.lower()
-    keyword_weights = {
-        "industrial": 2,
-        "computer": 2,
-        "pollution": 1,
-        "climate": 2,
-        "ai": 2,
-        "nutrition": 1,
-        "space": 2,
-        "mental health": 3,
-        "technology": 1,
-        "environment": 2
-    }
+# Load sentence transformer model
+model = SentenceTransformer('all-MiniLM-L6-v2')
 
-    # Calculate relevance score by matching keywords
-    relevance_score = sum(weight for kw, weight in keyword_weights.items() if kw in text_lower)
+# 1. Generate Student Data
+def generate_student_data(n=500):
+    first_names = ['Ali', 'Sara', 'Omar', 'Lina', 'Zain', 'Noor', 'Hassan', 'Ayesha', 'Khalid', 'Fatima']
+    last_names = ['Khan', 'Ahmed', 'Farooq', 'Begum', 'Malik', 'Yousuf', 'Iqbal', 'Rashid', 'Syed', 'Zafar']
+    students = []
 
-    # Calculate readability score using Flesch Reading Ease
-    try:
-        readability = textstat.flesch_reading_ease(text)
-        # Normalize readability to a score between 1 and 3 (1 = easy, 3 = hard)
-        if readability > 70:
-            complexity_score = 1
-        elif readability > 50:
-            complexity_score = 2
-        else:
-            complexity_score = 3
-    except:
-        complexity_score = 2
+    mcqs = [
+        {"question": "Which of the following is a renewable energy source?", "correct": "Wind"},
+        {"question": "What is the main component of solar panels?", "correct": "Silicon"},
+        {"question": "Which energy source emits no greenhouse gases?", "correct": "Hydropower"},
+    ]
 
-    # Word count scoring (depth of submission)
-    word_count = len(text.split())
-    length_score = 1 if word_count > 150 else 0
+    short_answers = [
+        "It helps reduce pollution.",
+        "Renewables lower carbon emissions.",
+        "Clean energy reduces our carbon footprint.",
+        "Helps the environment.",
+        "It is sustainable and eco-friendly."
+    ]
 
-    # Final score capped at 10
-    final_score = min(10, 5 + relevance_score + length_score - complexity_score)
+    essay_templates = [
+        "Renewable energy is essential for a sustainable future. It helps reduce greenhouse gases and dependency on fossil fuels. Wind and solar are widely used.",
+        "The world needs to move to clean energy. Solar, wind, and hydro are key sources. They are clean, abundant, and better for the planet.",
+        "As the world faces climate change, renewable energy is a necessity. It provides clean power and helps reduce global warming.",
+        "Fossil fuels are harmful. Renewable energy offers a cleaner alternative. Investing in it can ensure a greener future.",
+        "To protect the environment, we must use renewable energy. It is crucial for reducing pollution and saving natural resources."
+    ]
 
-    # Generate feedback
-    feedback = (
-        f"Content relevance score: {relevance_score}. "
-        f"Readability score: {readability:.2f}. Word count: {word_count}."
-    )
+    for i in range(n):
+        name = f"{random.choice(first_names)} {random.choice(last_names)}"
+        student_id = 1000 + i
+        mcq_answers = [random.choice([q["correct"], "Coal", "Oil", "Natural Gas"]) for q in mcqs]
+        short = random.choice(short_answers)
+        essay = random.choice(essay_templates)
 
-    return final_score, feedback
+        students.append({
+            "student_id": student_id,
+            "student_name": name,
+            "mcq_1": mcq_answers[0],
+            "mcq_2": mcq_answers[1],
+            "mcq_3": mcq_answers[2],
+            "short_answer": short,
+            "essay_answer": essay
+        })
+    return pd.DataFrame(students)
 
+# 2. Grade MCQs
+def grade_mcqs(row):
+    score = 0
+    if row['mcq_1'] == "Wind": score += 1
+    if row['mcq_2'] == "Silicon": score += 1
+    if row['mcq_3'] == "Hydropower": score += 1
+    return score
 
-def main():
-    # Load submissions
-    df = pd.read_csv("sample_submissions.csv")
+# 3. Grade Short Answer (Semantic Similarity)
+def grade_short_answer(answer):
+    expected = "Renewable energy reduces carbon emissions."
+    embeddings = model.encode([answer, expected])
+    sim = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
+    return round(sim * 10, 2)  # scale to 10 points
 
-    scores = []
-    feedbacks = []
+# 4. Grade Essay (Basic Rule-Based Scoring)
+def grade_essay(answer):
+    keywords = ["renewable energy", "sustainable", "solar", "wind", "greenhouse", "climate", "future"]
+    score = sum(1 for kw in keywords if kw in answer.lower())
+    return min(score * 2, 20)  # out of 20
 
-    for submission in df["submission"]:
-        score, feedback = dynamic_grade(submission)
-        scores.append(score)
-        feedbacks.append(feedback)
+# Run Grading
+if __name__ == '__main__':
+    df = generate_student_data(500)
+    df['mcq_score'] = df.apply(grade_mcqs, axis=1)
+    df['short_score'] = df['short_answer'].apply(grade_short_answer)
+    df['essay_score'] = df['essay_answer'].apply(grade_essay)
+    df['total_score'] = df['mcq_score'] + df['short_score'] + df['essay_score']
 
-    df["score"] = scores
-    df["feedback"] = feedbacks
-
-    df.to_csv("graded_submissions.csv", index=False)
-    print("Grading complete. Results saved to graded_submissions.csv")
-
-
-if __name__ == "__main__":
-    main()
+    # Save to CSV
+    df.to_csv("graded_student_submissions.csv", index=False)
+    print("Grading complete. File saved as 'graded_student_submissions.csv'")
